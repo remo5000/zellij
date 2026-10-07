@@ -38,6 +38,8 @@ pub const THEME_STYLES: [&str; 14] = [
     "exit_code_success",
     "exit_code_error",
 ];
+pub const ANCESTOR_RIBBON_STYLES: [&str; 2] =
+    ["ribbon_ancestor_selected", "ribbon_ancestor_unselected"];
 pub const STYLE_COMPONENTS: [&str; 6] = [
     "base",
     "background",
@@ -70,6 +72,12 @@ pub fn theme_slots() -> Vec<(&'static str, &'static str)> {
     }
     for player in PLAYER_COLOURS {
         slots.push((MULTIPLAYER_COLOURS, player));
+    }
+    // Keep existing colour indices stable for older configuration plugins.
+    for style in ANCESTOR_RIBBON_STYLES {
+        for component in STYLE_COMPONENTS {
+            slots.push((style, component));
+        }
     }
     slots
 }
@@ -144,6 +152,8 @@ fn style_ref<'a>(styling: &'a Styling, style: &str) -> Option<&'a StyleDeclarati
         "text_selected" => Some(&styling.text_selected),
         "ribbon_unselected" => Some(&styling.ribbon_unselected),
         "ribbon_selected" => Some(&styling.ribbon_selected),
+        "ribbon_ancestor_selected" => styling.ribbon_ancestor_selected.as_ref(),
+        "ribbon_ancestor_unselected" => styling.ribbon_ancestor_unselected.as_ref(),
         "table_title" => Some(&styling.table_title),
         "table_cell_unselected" => Some(&styling.table_cell_unselected),
         "table_cell_selected" => Some(&styling.table_cell_selected),
@@ -160,11 +170,23 @@ fn style_ref<'a>(styling: &'a Styling, style: &str) -> Option<&'a StyleDeclarati
 
 fn style_mut<'a>(styling: &'a mut Styling, style: &str) -> Option<&'a mut StyleDeclaration> {
     let frame_selected = styling.frame_selected;
+    let ribbon_ancestor_selected = styling.ancestor_ribbon_style(true);
+    let ribbon_ancestor_unselected = styling.ancestor_ribbon_style(false);
     match style {
         "text_unselected" => Some(&mut styling.text_unselected),
         "text_selected" => Some(&mut styling.text_selected),
         "ribbon_unselected" => Some(&mut styling.ribbon_unselected),
         "ribbon_selected" => Some(&mut styling.ribbon_selected),
+        "ribbon_ancestor_selected" => Some(
+            styling
+                .ribbon_ancestor_selected
+                .get_or_insert(ribbon_ancestor_selected),
+        ),
+        "ribbon_ancestor_unselected" => Some(
+            styling
+                .ribbon_ancestor_unselected
+                .get_or_insert(ribbon_ancestor_unselected),
+        ),
         "table_title" => Some(&mut styling.table_title),
         "table_cell_unselected" => Some(&mut styling.table_cell_unselected),
         "table_cell_selected" => Some(&mut styling.table_cell_selected),

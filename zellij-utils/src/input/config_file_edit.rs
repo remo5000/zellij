@@ -1914,7 +1914,14 @@ fn is_palette_theme(node: &KdlNode) -> bool {
             children
                 .nodes()
                 .iter()
-                .all(|child| PALETTE_COLOURS.contains(&node_name(child)))
+                .any(|child| PALETTE_COLOURS.contains(&node_name(child)))
+                && children.nodes().iter().all(|child| {
+                    PALETTE_COLOURS.contains(&node_name(child))
+                        || matches!(
+                            node_name(child),
+                            "ribbon_ancestor_selected" | "ribbon_ancestor_unselected"
+                        )
+                })
         })
         .unwrap_or(false)
 }

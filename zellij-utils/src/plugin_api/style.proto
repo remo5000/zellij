@@ -97,6 +97,8 @@ message Styling {
     repeated Color exit_code_success = 13;
     repeated Color exit_code_error = 14;
     repeated Color multiplayer_user_colors = 15;
+    repeated Color ribbon_ancestor_selected = 16;
+    repeated Color ribbon_ancestor_unselected = 17;
 }
 
 message StyledText {

@@ -1924,6 +1924,10 @@ pub struct Styling {
     pub text_selected: StyleDeclaration,
     pub ribbon_unselected: StyleDeclaration,
     pub ribbon_selected: StyleDeclaration,
+    #[serde(default)]
+    pub ribbon_ancestor_selected: Option<StyleDeclaration>,
+    #[serde(default)]
+    pub ribbon_ancestor_unselected: Option<StyleDeclaration>,
     pub table_title: StyleDeclaration,
     pub table_cell_unselected: StyleDeclaration,
     pub table_cell_selected: StyleDeclaration,
@@ -1961,6 +1965,26 @@ pub struct MultiplayerColors {
     pub player_10: PaletteColor,
 }
 
+impl Styling {
+    pub fn ancestor_ribbon_style(&self, is_selected: bool) -> StyleDeclaration {
+        if is_selected {
+            self.ribbon_ancestor_selected.unwrap_or_else(|| {
+                let mut declaration = self.ribbon_selected;
+                let (r, g, b) = match declaration.background {
+                    PaletteColor::Rgb(rgb) => rgb,
+                    PaletteColor::EightBit(index) => eightbit_to_rgb(index),
+                };
+                let lighten = |channel: u8| ((u16::from(channel) + 255) / 2) as u8;
+                declaration.background = PaletteColor::Rgb((lighten(r), lighten(g), lighten(b)));
+                declaration
+            })
+        } else {
+            self.ribbon_ancestor_unselected
+                .unwrap_or(self.ribbon_unselected)
+        }
+    }
+}
+
 pub const DEFAULT_STYLES: Styling = Styling {
     text_unselected: StyleDeclaration {
         base: PaletteColor::EightBit(default_colors::BRIGHT_GRAY),
@@ -1986,6 +2010,8 @@ pub const DEFAULT_STYLES: Styling = Styling {
         emphasis_3: PaletteColor::EightBit(default_colors::MAGENTA),
         background: PaletteColor::EightBit(default_colors::GRAY),
     },
+    ribbon_ancestor_selected: None,
+    ribbon_ancestor_unselected: None,
     ribbon_selected: StyleDeclaration {
         base: PaletteColor::EightBit(default_colors::BLACK),
         emphasis_0: PaletteColor::EightBit(default_colors::RED),
@@ -2144,6 +2170,8 @@ impl From<Palette> for Styling {
                 emphasis_3: palette.magenta,
                 background: palette.fg,
             },
+            ribbon_ancestor_selected: None,
+            ribbon_ancestor_unselected: None,
             ribbon_selected: StyleDeclaration {
                 base: palette.black,
                 emphasis_0: palette.red,
@@ -5172,6 +5200,56 @@ fn a_floating_placement_carries_its_border_style_in_the_coordinates() {
         })
     );
     assert_eq!(placement.get_border_style(), coordinates.border_style);
+}
+
+#[cfg(test)]
+mod ancestor_ribbon_style_tests {
+    use super::*;
+
+    #[test]
+    fn selected_fallback_lightens_the_theme_background_without_changing_other_colours() {
+        let mut styling = DEFAULT_STYLES;
+        styling.ribbon_selected.background = PaletteColor::Rgb((0, 128, 255));
+        let selected = styling.ancestor_ribbon_style(true);
+        assert_eq!(selected.background, PaletteColor::Rgb((127, 191, 255)));
+        assert_eq!(selected.base, styling.ribbon_selected.base);
+        assert_eq!(selected.emphasis_0, styling.ribbon_selected.emphasis_0);
+        assert_eq!(
+            styling.ancestor_ribbon_style(false),
+            styling.ribbon_unselected
+        );
+    }
+
+    #[test]
+    fn eight_bit_background_is_converted_before_lightening() {
+        let mut styling = DEFAULT_STYLES;
+        styling.ribbon_selected.background = PaletteColor::EightBit(46);
+        let selected = styling.ancestor_ribbon_style(true);
+        assert_eq!(selected.background, PaletteColor::Rgb((127, 255, 127)));
+        assert_eq!(selected.base, styling.ribbon_selected.base);
+    }
+
+    #[test]
+    fn explicit_ancestor_styles_override_both_fallbacks() {
+        let mut styling = DEFAULT_STYLES;
+        styling.ribbon_ancestor_selected = Some(styling.frame_highlight);
+        styling.ribbon_ancestor_unselected = Some(styling.text_selected);
+        assert_eq!(styling.ancestor_ribbon_style(true), styling.frame_highlight);
+        assert_eq!(styling.ancestor_ribbon_style(false), styling.text_selected);
+    }
+
+    #[test]
+    fn old_serialized_styling_and_legacy_palettes_have_no_ancestor_overrides() {
+        let mut saved = serde_json::to_value(DEFAULT_STYLES).unwrap();
+        let fields = saved.as_object_mut().unwrap();
+        fields.remove("ribbon_ancestor_selected");
+        fields.remove("ribbon_ancestor_unselected");
+        let restored: Styling = serde_json::from_value(saved).unwrap();
+        assert_eq!(restored, DEFAULT_STYLES);
+        let legacy: Styling = Palette::from(DEFAULT_STYLES).into();
+        assert_eq!(legacy.ribbon_ancestor_selected, None);
+        assert_eq!(legacy.ribbon_ancestor_unselected, None);
+    }
 }
 
 #[cfg(test)]

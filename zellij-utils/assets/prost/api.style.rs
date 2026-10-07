@@ -148,6 +148,10 @@ pub struct Styling {
     pub exit_code_error: ::prost::alloc::vec::Vec<Color>,
     #[prost(message, repeated, tag="15")]
     pub multiplayer_user_colors: ::prost::alloc::vec::Vec<Color>,
+    #[prost(message, repeated, tag="16")]
+    pub ribbon_ancestor_selected: ::prost::alloc::vec::Vec<Color>,
+    #[prost(message, repeated, tag="17")]
+    pub ribbon_ancestor_unselected: ::prost::alloc::vec::Vec<Color>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

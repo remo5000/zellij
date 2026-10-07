@@ -185,6 +185,8 @@ fn theme_folder_themes_carry_their_file_and_colours() {
 fn styling_survives_the_colour_list() {
     let mut styling = DEFAULT_STYLES;
     styling.frame_unselected = Some(styling.frame_highlight);
+    styling.ribbon_ancestor_selected = Some(styling.ribbon_selected);
+    styling.ribbon_ancestor_unselected = Some(styling.ribbon_unselected);
     set_slot_colour(
         &mut styling,
         "ribbon_selected",
@@ -206,6 +208,114 @@ fn styling_survives_the_colour_list() {
         styling_from_colours(&styling_colours(&without_frame)),
         without_frame
     );
+}
+
+#[test]
+fn legacy_theme_colours_keep_their_original_94_positions() {
+    let mut styling = DEFAULT_STYLES;
+    styling.table_title.base = PaletteColor::Rgb((11, 22, 33));
+    styling.frame_selected.background = PaletteColor::EightBit(41);
+    styling.multiplayer_user_colors.player_10 = PaletteColor::Rgb((42, 43, 44));
+    let old_styles = [
+        "text_unselected",
+        "text_selected",
+        "ribbon_unselected",
+        "ribbon_selected",
+        "table_title",
+        "table_cell_unselected",
+        "table_cell_selected",
+        "list_unselected",
+        "list_selected",
+        "frame_unselected",
+        "frame_selected",
+        "frame_highlight",
+        "exit_code_success",
+        "exit_code_error",
+    ];
+    let mut legacy: Vec<String> = old_styles
+        .iter()
+        .flat_map(|style| {
+            STYLE_COMPONENTS
+                .iter()
+                .map(|component| {
+                    slot_colour(&styling, style, component)
+                        .map(|color| colour_text(&color))
+                        .unwrap_or_default()
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    legacy.extend(
+        PLAYER_COLOURS.iter().map(|player| {
+            colour_text(&slot_colour(&styling, MULTIPLAYER_COLOURS, player).unwrap())
+        }),
+    );
+    assert_eq!(legacy.len(), 94);
+    assert_eq!(
+        &theme_slots()[..84],
+        &old_styles
+            .iter()
+            .flat_map(|style| STYLE_COMPONENTS
+                .iter()
+                .map(move |component| (*style, *component)))
+            .collect::<Vec<_>>()[..]
+    );
+    assert_eq!(theme_slots()[93], (MULTIPLAYER_COLOURS, "player_10"));
+    assert_eq!(styling_from_colours(&legacy), styling);
+
+    styling.ribbon_ancestor_selected = Some(styling.ribbon_selected);
+    styling.ribbon_ancestor_unselected = Some(styling.ribbon_unselected);
+    let expanded = styling_colours(&styling);
+    assert_eq!(expanded.len(), 106);
+    assert_eq!(&expanded[..94], legacy.as_slice());
+    assert_eq!(styling_from_colours(&expanded), styling);
+}
+
+#[test]
+fn ancestor_ribbon_theme_slots_edit_fallbacks_and_save_explicit_styles() {
+    let mut styling = DEFAULT_STYLES;
+    for style in ["ribbon_ancestor_selected", "ribbon_ancestor_unselected"] {
+        assert!(theme_slots().contains(&(style, "background")));
+        assert_eq!(slot_colour(&styling, style, "background"), None);
+    }
+    let selected_fallback = styling.ancestor_ribbon_style(true);
+    set_slot_colour(
+        &mut styling,
+        "ribbon_ancestor_selected",
+        "base",
+        PaletteColor::EightBit(30),
+    );
+    set_slot_colour(
+        &mut styling,
+        "ribbon_ancestor_unselected",
+        "background",
+        PaletteColor::Rgb((9, 8, 7)),
+    );
+    assert_eq!(
+        styling.ribbon_ancestor_selected.unwrap().background,
+        selected_fallback.background
+    );
+    assert_eq!(
+        styling.ribbon_ancestor_unselected.unwrap().base,
+        styling.ribbon_unselected.base
+    );
+    assert_eq!(
+        slot_colour(&styling, "ribbon_ancestor_selected", "base"),
+        Some(PaletteColor::EightBit(30))
+    );
+    let colours = styling_colours(&styling);
+    assert_eq!(styling_from_colours(&colours), styling);
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = create_theme_file(dir.path(), "ancestors", &styling).unwrap();
+    assert_eq!(read_theme(&path, "ancestors").unwrap().palette, styling);
+    let mut saved = std::fs::read_to_string(&path).unwrap();
+    assert!(saved.contains("ribbon_ancestor_selected"));
+    assert!(saved.contains("ribbon_ancestor_unselected"));
+    let plain_path = create_theme_file(dir.path(), "plain", &DEFAULT_STYLES).unwrap();
+    saved = std::fs::read_to_string(&plain_path).unwrap();
+    assert!(!saved.contains("ribbon_ancestor_selected"));
+    assert!(!saved.contains("ribbon_ancestor_unselected"));
 }
 
 #[test]

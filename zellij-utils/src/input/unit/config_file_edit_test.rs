@@ -823,6 +823,46 @@ fn a_file_without_merge_statements_reads_as_before() {
 const THEME_FILE: &str = "themes {\n    // my theme\n    mine {\n        text_unselected {\n            base 1 2 3 // fg\n            emphasis_0 4\n            emphasis_1 5\n            emphasis_2 6\n            emphasis_3 7\n        }\n    }\n}\n";
 
 #[test]
+fn legacy_theme_edits_convert_the_whole_theme_and_keep_palette_colours() {
+    let file = "themes { mine { fg 1; bg 2; red 3; green 4; blue 5; yellow 6; magenta 7; orange 8; cyan 9; black 10; white 11; ribbon_ancestor_selected { base 21; background 22; emphasis_0 23; emphasis_1 24; emphasis_2 25; emphasis_3 26; }; }; }";
+    let legacy = "themes { mine { fg 1; bg 2; red 3; green 4; blue 5; yellow 6; magenta 7; orange 8; cyan 9; black 10; white 11; }; }";
+    let old = load(legacy).themes.get_theme("mine").unwrap().palette;
+    let updated = saved_text_after(file, |saved| {
+        let mut runtime = saved.clone();
+        let mut theme = runtime.themes.get_theme("mine").unwrap().clone();
+        theme.palette.ribbon_ancestor_unselected = Some(theme.palette.ribbon_unselected);
+        runtime.themes.insert("mine".to_owned(), theme);
+        runtime
+    });
+    assert!(updated.contains("ribbon_ancestor_unselected"));
+    assert!(
+        !updated.contains("fg 1"),
+        "mixed schema left behind: {updated}"
+    );
+    let updated_theme = load(&updated).themes.get_theme("mine").unwrap().palette;
+    assert_eq!(updated_theme.ribbon_selected, old.ribbon_selected);
+    assert_eq!(updated_theme.text_unselected, old.text_unselected);
+    assert!(updated_theme.ribbon_ancestor_unselected.is_some());
+
+    let removed = saved_text_after(file, |saved| {
+        let mut runtime = saved.clone();
+        let mut theme = runtime.themes.get_theme("mine").unwrap().clone();
+        theme.palette.ribbon_ancestor_selected = None;
+        runtime.themes.insert("mine".to_owned(), theme);
+        runtime
+    });
+    assert!(!removed.contains("ribbon_ancestor_selected"));
+    assert!(
+        !removed.contains("fg 1"),
+        "mixed schema left behind: {removed}"
+    );
+    let removed_theme = load(&removed).themes.get_theme("mine").unwrap().palette;
+    assert_eq!(removed_theme.ribbon_selected, old.ribbon_selected);
+    assert_eq!(removed_theme.text_unselected, old.text_unselected);
+    assert_eq!(removed_theme.ribbon_ancestor_selected, None);
+}
+
+#[test]
 fn a_theme_colour_is_changed_in_place() {
     let text = saved_text_after(THEME_FILE, |saved| {
         let mut runtime = saved.clone();

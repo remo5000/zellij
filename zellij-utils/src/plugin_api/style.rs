@@ -209,12 +209,24 @@ impl TryFrom<ProtobufStyling> for Styling {
         } else {
             None
         };
+        let ribbon_ancestor_selected = if proto.ribbon_ancestor_selected.is_empty() {
+            None
+        } else {
+            Some(color_definitions!(proto, ribbon_ancestor_selected, 6))
+        };
+        let ribbon_ancestor_unselected = if proto.ribbon_ancestor_unselected.is_empty() {
+            None
+        } else {
+            Some(color_definitions!(proto, ribbon_ancestor_unselected, 6))
+        };
 
         Ok(Styling {
             text_unselected: color_definitions!(proto, text_unselected, 6),
             text_selected: color_definitions!(proto, text_selected, 6),
             ribbon_unselected: color_definitions!(proto, ribbon_unselected, 6),
             ribbon_selected: color_definitions!(proto, ribbon_selected, 6),
+            ribbon_ancestor_selected,
+            ribbon_ancestor_unselected,
             table_title: color_definitions!(proto, table_title, 6),
             table_cell_unselected: color_definitions!(proto, table_cell_unselected, 6),
             table_cell_selected: color_definitions!(proto, table_cell_selected, 6),
@@ -268,9 +280,9 @@ impl TryFrom<Styling> for ProtobufStyling {
     type Error = &'static str;
 
     fn try_from(style: Styling) -> std::result::Result<Self, Self::Error> {
-        let frame_unselected_vec = match style.frame_unselected {
+        let optional_colors = |declaration: Option<StyleDeclaration>| match declaration {
             None => Ok(Vec::new()),
-            Some(frame_unselected) => frame_unselected.try_into(),
+            Some(declaration) => declaration.try_into(),
         };
 
         Ok(ProtobufStyling {
@@ -278,12 +290,14 @@ impl TryFrom<Styling> for ProtobufStyling {
             text_selected: style.text_selected.try_into()?,
             ribbon_unselected: style.ribbon_unselected.try_into()?,
             ribbon_selected: style.ribbon_selected.try_into()?,
+            ribbon_ancestor_selected: optional_colors(style.ribbon_ancestor_selected)?,
+            ribbon_ancestor_unselected: optional_colors(style.ribbon_ancestor_unselected)?,
             table_title: style.table_title.try_into()?,
             table_cell_unselected: style.table_cell_unselected.try_into()?,
             table_cell_selected: style.table_cell_selected.try_into()?,
             list_unselected: style.list_unselected.try_into()?,
             list_selected: style.list_selected.try_into()?,
-            frame_unselected: frame_unselected_vec?,
+            frame_unselected: optional_colors(style.frame_unselected)?,
             frame_selected: style.frame_selected.try_into()?,
             frame_highlight: style.frame_highlight.try_into()?,
             exit_code_success: style.exit_code_success.try_into()?,
@@ -476,6 +490,7 @@ impl TryFrom<ProtobufThemeHue> for ThemeHue {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use prost::Message;
 
     fn sample_border_style() -> BorderStyle {
         BorderStyle {
@@ -485,6 +500,41 @@ mod tests {
             left: LineStyle::HeavyDashed,
             rounded_corners: true,
         }
+    }
+
+    #[test]
+    fn ancestor_ribbon_styles_round_trip_and_older_payloads_omit_them() {
+        let mut styling = Styling::default();
+        let empty: ProtobufStyling = styling.try_into().unwrap();
+        assert!(empty.ribbon_ancestor_selected.is_empty());
+        assert!(empty.ribbon_ancestor_unselected.is_empty());
+        assert_eq!(Styling::try_from(empty).unwrap(), styling);
+
+        styling.ribbon_ancestor_selected = Some(styling.ribbon_selected);
+        styling.ribbon_ancestor_unselected = Some(styling.ribbon_unselected);
+        let encoded: ProtobufStyling = styling.try_into().unwrap();
+        assert_eq!(encoded.ribbon_ancestor_selected.len(), 6);
+        assert_eq!(encoded.ribbon_ancestor_unselected.len(), 6);
+        let decoded = ProtobufStyling::decode(encoded.encode_to_vec().as_slice()).unwrap();
+        assert_eq!(Styling::try_from(decoded).unwrap(), styling);
+
+        for is_selected in [true, false] {
+            let mut malformed = encoded.clone();
+            if is_selected {
+                malformed.ribbon_ancestor_selected.pop();
+            } else {
+                malformed.ribbon_ancestor_unselected.pop();
+            }
+            assert!(Styling::try_from(malformed).is_err());
+        }
+        let mut old_payload = encoded;
+        old_payload.ribbon_ancestor_selected.clear();
+        old_payload.ribbon_ancestor_unselected.clear();
+        let wire = old_payload.encode_to_vec();
+        let restored =
+            Styling::try_from(ProtobufStyling::decode(wire.as_slice()).unwrap()).unwrap();
+        assert_eq!(restored.ribbon_ancestor_selected, None);
+        assert_eq!(restored.ribbon_ancestor_unselected, None);
     }
 
     #[test]

@@ -182,6 +182,8 @@ expression: "format!(\"{:#?}\", theme)"
                     ),
                 ),
             },
+            ribbon_ancestor_selected: None,
+            ribbon_ancestor_unselected: None,
             table_title: StyleDeclaration {
                 base: Rgb(
                     (

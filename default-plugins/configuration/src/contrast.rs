@@ -208,7 +208,10 @@ mod tests {
         for ((style, component), found) in theme_slots().iter().zip(contrasts.iter()) {
             let skipped = *style == MULTIPLAYER_COLOURS
                 || *component == "background"
-                || *style == "frame_unselected";
+                || matches!(
+                    *style,
+                    "frame_unselected" | "ribbon_ancestor_selected" | "ribbon_ancestor_unselected"
+                );
             assert_eq!(found.is_none(), skipped, "{}.{}", style, component);
         }
     }

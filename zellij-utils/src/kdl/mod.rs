@@ -6611,7 +6611,15 @@ impl Themes {
                 );
                 Ok(Some(StyleDeclaration {
                     base: PaletteColor::try_from(("base", colors))?,
-                    background: PaletteColor::try_from(("background", colors)).unwrap_or_default(),
+                    background: if matches!(
+                        style_descriptor,
+                        "ribbon_ancestor_selected" | "ribbon_ancestor_unselected"
+                    ) && colors.get("background").is_some()
+                    {
+                        PaletteColor::try_from(("background", colors))?
+                    } else {
+                        PaletteColor::try_from(("background", colors)).unwrap_or_default()
+                    },
                     emphasis_0: PaletteColor::try_from(("emphasis_0", colors))?,
                     emphasis_1: PaletteColor::try_from(("emphasis_1", colors))?,
                     emphasis_2: PaletteColor::try_from(("emphasis_2", colors))?,
@@ -6669,11 +6677,18 @@ impl Themes {
                 "fg", "bg", "red", "green", "blue", "yellow", "magenta", "orange", "cyan", "black",
                 "white",
             ]);
-            let theme = if theme_colors
-                .nodes()
-                .iter()
-                .all(|n| palette_color_names.contains(n.name().value()))
-            {
+            let theme = if theme_colors.nodes().is_empty()
+                || theme_colors
+                    .nodes()
+                    .iter()
+                    .any(|n| palette_color_names.contains(n.name().value()))
+                    && theme_colors.nodes().iter().all(|n| {
+                        palette_color_names.contains(n.name().value())
+                            || matches!(
+                                n.name().value(),
+                                "ribbon_ancestor_selected" | "ribbon_ancestor_unselected"
+                            )
+                    }) {
                 // Older palette based theme definition
                 let palette = Palette {
                     fg: PaletteColor::try_from(("fg", theme_colors))?,
@@ -6689,8 +6704,15 @@ impl Themes {
                     white: PaletteColor::try_from(("white", theme_colors))?,
                     ..Default::default()
                 };
+                let mut styling: Styling = palette.into();
+                styling.ribbon_ancestor_selected =
+                    Themes::style_declaration_from_node(theme_config, "ribbon_ancestor_selected")?;
+                styling.ribbon_ancestor_unselected = Themes::style_declaration_from_node(
+                    theme_config,
+                    "ribbon_ancestor_unselected",
+                )?;
                 Theme {
-                    palette: palette.into(),
+                    palette: styling,
                     sourced_from_external_file,
                 }
             } else {
@@ -6716,6 +6738,14 @@ impl Themes {
                         "ribbon_selected",
                     )
                     .map(|maybe_style| maybe_style.unwrap_or(DEFAULT_STYLES.ribbon_selected))?,
+                    ribbon_ancestor_selected: Themes::style_declaration_from_node(
+                        theme_config,
+                        "ribbon_ancestor_selected",
+                    )?,
+                    ribbon_ancestor_unselected: Themes::style_declaration_from_node(
+                        theme_config,
+                        "ribbon_ancestor_unselected",
+                    )?,
                     table_title: Themes::style_declaration_from_node(theme_config, "table_title")
                         .map(|maybe_style| {
                         maybe_style.unwrap_or(DEFAULT_STYLES.table_title)
@@ -6855,6 +6885,14 @@ pub fn theme_to_kdl(theme_name: &str, palette: &Styling) -> KdlNode {
         ("text_selected", Some(&palette.text_selected)),
         ("ribbon_selected", Some(&palette.ribbon_selected)),
         ("ribbon_unselected", Some(&palette.ribbon_unselected)),
+        (
+            "ribbon_ancestor_selected",
+            palette.ribbon_ancestor_selected.as_ref(),
+        ),
+        (
+            "ribbon_ancestor_unselected",
+            palette.ribbon_ancestor_unselected.as_ref(),
+        ),
         ("table_title", Some(&palette.table_title)),
         ("table_cell_selected", Some(&palette.table_cell_selected)),
         (
@@ -8313,6 +8351,142 @@ fn keybinds_to_string_with_multiple_multiline_actions() {
         "Deserialized serialized config equals original config"
     );
     insta::assert_snapshot!(serialized.to_string());
+}
+
+#[test]
+fn empty_theme_is_rejected() {
+    assert!(Themes::from_string(&"themes { empty { }; }".to_owned(), false).is_err());
+}
+
+#[test]
+fn legacy_palette_with_ancestor_override_preserves_legacy_colours() {
+    let legacy = "fg 1; bg 2; red 3; green 4; blue 5; yellow 6; magenta 7; orange 8; cyan 9; black 10; white 11";
+    let ancestor = "ribbon_ancestor_selected { base 21; background 22; emphasis_0 23; emphasis_1 24; emphasis_2 25; emphasis_3 26; }";
+    let plain = Themes::from_string(&format!("themes {{ mine {{ {legacy}; }}; }}"), false)
+        .unwrap()
+        .get_theme("mine")
+        .unwrap()
+        .palette;
+    let mixed = Themes::from_string(
+        &format!("themes {{ mine {{ {legacy}; {ancestor}; }}; }}"),
+        false,
+    )
+    .unwrap()
+    .get_theme("mine")
+    .unwrap()
+    .palette;
+    assert_eq!(mixed.ribbon_selected, plain.ribbon_selected);
+    assert_eq!(mixed.text_unselected, plain.text_unselected);
+    assert_eq!(mixed.multiplayer_user_colors, plain.multiplayer_user_colors);
+    assert_eq!(
+        mixed.ribbon_ancestor_selected.unwrap().background,
+        PaletteColor::EightBit(22)
+    );
+    assert_eq!(mixed.ribbon_ancestor_unselected, None);
+
+    let named_only = Themes::from_string(&format!("themes {{ mine {{ {ancestor}; }}; }}"), false)
+        .unwrap()
+        .get_theme("mine")
+        .unwrap()
+        .palette;
+    assert_eq!(named_only.ribbon_selected, DEFAULT_STYLES.ribbon_selected);
+    assert_eq!(
+        named_only.ribbon_ancestor_selected,
+        mixed.ribbon_ancestor_selected
+    );
+}
+
+#[test]
+fn ancestor_background_allows_absence_but_rejects_invalid_values() {
+    let style = "base 1; emphasis_0 2; emphasis_1 3; emphasis_2 4; emphasis_3 5";
+    for descriptor in ["ribbon_ancestor_selected", "ribbon_ancestor_unselected"] {
+        let parse = |background: &str| {
+            Themes::from_string(
+                &format!("themes {{ mine {{ {descriptor} {{ {style}; {background} }}; }}; }}"),
+                false,
+            )
+        };
+        let styling = parse("").unwrap().get_theme("mine").unwrap().palette;
+        assert_eq!(
+            styling
+                .ancestor_ribbon_style(descriptor == "ribbon_ancestor_selected")
+                .background,
+            PaletteColor::default()
+        );
+        for invalid in ["background \"not-a-colour\";", "background 300;"] {
+            assert!(parse(invalid).is_err(), "accepted {descriptor}: {invalid}");
+        }
+    }
+}
+
+#[test]
+fn ancestor_ribbon_styles_are_only_serialized_when_configured() {
+    let config = r#"themes {
+        custom {
+            ribbon_ancestor_selected {
+                base 1; background 2; emphasis_0 3; emphasis_1 4; emphasis_2 5; emphasis_3 6
+            }
+            ribbon_ancestor_unselected {
+                base 7; background 8; emphasis_0 9; emphasis_1 10; emphasis_2 11; emphasis_3 12
+            }
+        }
+        ordinary {
+            ribbon_selected {
+                base 1; emphasis_0 2; emphasis_1 3; emphasis_2 4; emphasis_3 5
+            }
+        }
+    }"#;
+    let themes = Themes::from_string(&config.to_owned(), false).unwrap();
+    let custom = &themes.get_theme("custom").unwrap().palette;
+    assert_eq!(
+        custom.ribbon_ancestor_selected.unwrap().background,
+        PaletteColor::EightBit(2)
+    );
+    assert_eq!(
+        custom.ribbon_ancestor_unselected.unwrap().base,
+        PaletteColor::EightBit(7)
+    );
+    let ordinary = &themes.get_theme("ordinary").unwrap().palette;
+    assert_eq!(ordinary.ribbon_ancestor_selected, None);
+    assert_eq!(ordinary.ribbon_ancestor_unselected, None);
+
+    let serialized = themes.to_kdl().unwrap().to_string();
+    let doc: KdlDocument = serialized.parse().unwrap();
+    let custom_node = doc
+        .get("themes")
+        .unwrap()
+        .children()
+        .unwrap()
+        .get("custom")
+        .unwrap();
+    let ordinary_node = doc
+        .get("themes")
+        .unwrap()
+        .children()
+        .unwrap()
+        .get("ordinary")
+        .unwrap();
+    assert!(custom_node
+        .children()
+        .unwrap()
+        .get("ribbon_ancestor_selected")
+        .is_some());
+    assert!(custom_node
+        .children()
+        .unwrap()
+        .get("ribbon_ancestor_unselected")
+        .is_some());
+    assert!(ordinary_node
+        .children()
+        .unwrap()
+        .get("ribbon_ancestor_selected")
+        .is_none());
+    assert!(ordinary_node
+        .children()
+        .unwrap()
+        .get("ribbon_ancestor_unselected")
+        .is_none());
+    assert_eq!(Themes::from_string(&serialized, false).unwrap(), themes);
 }
 
 #[test]
